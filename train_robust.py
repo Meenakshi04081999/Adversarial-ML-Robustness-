@@ -33,7 +33,7 @@ train_loader  = DataLoader(train_dataset, batch_size=128, shuffle=True,  num_wor
 val_loader    = DataLoader(val_dataset,   batch_size=256, shuffle=False, num_workers=4, pin_memory=True)
 
 # Model (exactly as in task_template.py) 
-model = resnet18(weights=None)
+model = resnet34(weights=None)
 model.fc = nn.Linear(model.fc.in_features, NUM_CLASSES)
 
 # Sanity check
@@ -87,7 +87,7 @@ def pgd_attack(model, x, y, eps=EPS, step_size=STEP_SIZE, num_steps=PGD_STEPS):
     return x_adv.detach()
     
     
-# Now trying out FGSM attack on resnet 18
+# Now trying out FGSM attack on resnet 34
 def fgsm_attack(model, x, y, eps=EPS):
     model.eval()
     x_adv = x.detach().clone()
@@ -227,7 +227,7 @@ if best_state is None:
 print(f"\nDone. Best score: {best_score:.3%}  →  model.pt")
 
 # Sanity check
-model_check = resnet18(weights=None)
+model_check = resnet34(weights=None)
 model_check.fc = nn.Linear(model_check.fc.in_features, NUM_CLASSES)
 model_check.load_state_dict(torch.load("model.pt", map_location="cpu"))
 model_check.eval()
