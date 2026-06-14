@@ -6,6 +6,7 @@ from torchvision.models import resnet18, resnet34, resnet50
 import torch.optim as optim
 import copy
 import time
+import random
 
 # Load data
 data = np.load("/home/atml_team032/robust_classifier/train.npz", allow_pickle = True)
@@ -69,7 +70,7 @@ def update_ema(model, ema_model, decay=EMA_DECAY):
 
 # PGD attack 
 
-"""
+
 def pgd_attack(model, x, y, eps=EPS, step_size=STEP_SIZE, num_steps=PGD_STEPS):
     model.eval()
     x_adv = x.detach() + torch.zeros_like(x).uniform_(-eps, eps)
@@ -85,7 +86,7 @@ def pgd_attack(model, x, y, eps=EPS, step_size=STEP_SIZE, num_steps=PGD_STEPS):
     model.train()
     return x_adv.detach()
     
-    """
+    
 # Now trying out FGSM attack on resnet 18
 def fgsm_attack(model, x, y, eps=EPS):
     model.eval()
@@ -101,6 +102,38 @@ def fgsm_attack(model, x, y, eps=EPS):
 
     model.train()
     return x_adv.detach()
+
+def mixed_attack(model, x, y, epoch, num_epochs=NUM_EPOCHS):
+    """
+    mixed attack:
+    - Early epochs (1-50):   mostly FGSM (70%) + PGD (30%)  → fast warmup
+    - Middle epochs (51-100): equal mix  FGSM (50%) + PGD (50%)
+    - Late epochs (101+):    mostly PGD  (30%) + FGSM (70%) → strong finish
+    """
+    if epoch <= 50:
+        fgsm_prob = 0.7
+    elif epoch <= 100:
+        fgsm_prob = 0.5
+    else:
+        fgsm_prob = 0.3
+ 
+    if random.random() < fgsm_prob:
+        return fgsm_attack(model, x, y), "fgsm"
+    else:
+        return pgd_attack(model, x, y),  "pgd"
+
+def augment(x):
+    # Random horizontal flip
+    if torch.rand(1).item() > 0.5:
+        x = x.flip(-1)
+    # Random crop (pad 4, crop to 32)
+    pad = 4
+    x = nn.functional.pad(x, (pad, pad, pad, pad), mode='reflect')
+    _, _, h, w = x.shape
+    top  = torch.randint(0, h - 32 + 1, (1,)).item()
+    left = torch.randint(0, w - 32 + 1, (1,)).item()
+    x = x[:, :, top:top+32, left:left+32]
+    return x
 
 # Optimiser & scheduler 
 optimizer = optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM,
@@ -121,33 +154,41 @@ def clean_accuracy(model, loader):
 
 def robust_accuracy(model, loader, num_steps=20):
     model.eval()
-    correct, total = 0, 0
+    correct_fgsm, correct_pgd, total = 0, 0, 0
     for x, y in loader:
         x, y  = x.to(device), y.to(device)
-        #x_adv = pgd_attack(model, x, y, num_steps=num_steps)
+        x_adv = pgd_attack(model, x, y, num_steps=num_steps)
         x_adv = fgsm_attack(model, x, y)
         with torch.no_grad():
-            correct += (model(x_adv).argmax(1) == y).sum().item()
+            correct_fgsm += (model(x_adv).argmax(1) == y).sum().item()
+            correct_pgd += (model(x_adv).argmax(1) == y).sum().item()
         total += y.size(0)
-    return correct / total
+    return correct_fgsm / total, correct_pgd / total
 
 #  Training loop 
 best_score = 0.0
 best_state = None
+fgsm_count = 0
+pgd_count = 0
 
-print(f"\n{'Epoch':>6} {'LR':>8} {'Loss':>8} {'Clean':>8} {'Robust':>8} {'Score':>8} {'Time':>6}")
-print("─" * 60)
+print(f"\n{'Ep':>5} {'LR':>8} {'Loss':>8} {'Clean':>7} "
+      f"{'FGSM':>7} {'PGD':>7} {'Score':>7} {'Time':>6}")
+print("─" * 65)
 
 for epoch in range(1, NUM_EPOCHS + 1):
     t0 = time.time()
     model.train()
     total_loss, n_batches = 0.0, 0
-
+    fgsm_count = pgd_count = 0
+ 
     for x, y in train_loader:
         x, y  = x.to(device), y.to(device)
-        #x_adv = pgd_attack(model, x, y)
-        x_adv = fgsm_attack(model, x, y)
-
+        x     = augment(x)
+        x_adv, attack_used = mixed_attack(model, x, y, epoch)
+ 
+        if attack_used == "fgsm": fgsm_count += 1
+        else:                     pgd_count  += 1
+ 
         model.train()
         optimizer.zero_grad()
         loss = (1 - ADV_WEIGHT) * criterion(model(x),     y) + \
@@ -156,26 +197,28 @@ for epoch in range(1, NUM_EPOCHS + 1):
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         update_ema(model, ema_model)
-
+ 
         total_loss += loss.item()
         n_batches  += 1
-
+ 
     scheduler.step()
     lr_now = optimizer.param_groups[0]["lr"]
-
-    # Evaluate EMA model
-    clean_acc  = clean_accuracy(ema_model, val_loader)
-    robust_acc = robust_accuracy(ema_model, val_loader, num_steps=10 if epoch % 10 != 0 else 20)
-    score      = 0.5 * clean_acc + 0.5 * robust_acc
-
-    print(f"{epoch:>6} {lr_now:>8.5f} {total_loss/n_batches:>8.4f} "
-          f"{clean_acc:>7.3%} {robust_acc:>8.3%} {score:>8.3%} {time.time()-t0:>5.1f}s")
-
+ 
+    clean_acc            = clean_accuracy(ema_model, val_loader)
+    fgsm_acc, pgd_acc    = robust_accuracy(ema_model, val_loader)
+    score                = 0.5 * clean_acc + 0.5 * ((fgsm_acc + pgd_acc) / 2)
+ 
+    print(f"{epoch:>5} {lr_now:>8.5f} {total_loss/n_batches:>8.4f} "
+          f"{clean_acc:>6.2%} {fgsm_acc:>6.2%} {pgd_acc:>6.2%} "
+          f"{score:>6.2%} {time.time()-t0:>5.1f}s  "
+          f"[fgsm={fgsm_count} pgd={pgd_count}]")
+    
+    
     if score > best_score and clean_acc > 0.50:
         best_score = score
         best_state = copy.deepcopy(ema_model.state_dict())
         torch.save(best_state, "model.pt")
-        print(f"  ✓ Saved (score={best_score:.3%})")
+        print(f" Saved (score={best_score:.3%})")
 
 #  Final 
 if best_state is None:
