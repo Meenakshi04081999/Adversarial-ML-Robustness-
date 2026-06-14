@@ -68,6 +68,8 @@ def update_ema(model, ema_model, decay=EMA_DECAY):
             p_ema.data.mul_(decay).add_(p.data, alpha=1 - decay)
 
 # PGD attack 
+
+"""
 def pgd_attack(model, x, y, eps=EPS, step_size=STEP_SIZE, num_steps=PGD_STEPS):
     model.eval()
     x_adv = x.detach() + torch.zeros_like(x).uniform_(-eps, eps)
@@ -80,6 +82,23 @@ def pgd_attack(model, x, y, eps=EPS, step_size=STEP_SIZE, num_steps=PGD_STEPS):
             x_adv = x_adv + step_size * grad.sign()
             x_adv = x + (x_adv - x).clamp(-eps, eps)
             x_adv = x_adv.clamp(0.0, 1.0)
+    model.train()
+    return x_adv.detach()
+    
+    """
+# Now trying out FGSM attack on resnet 18
+def fgsm_attack(model, x, y, eps=EPS):
+    model.eval()
+    x_adv = x.detach().clone()
+    x_adv.requires_grad_(True)
+
+    loss = nn.CrossEntropyLoss()(model(x_adv), y)
+    grad = torch.autograd.grad(loss, x_adv)[0]
+
+    with torch.no_grad():
+        x_adv = x_adv + eps * grad.sign()
+        x_adv = x_adv.clamp(0.0, 1.0)
+
     model.train()
     return x_adv.detach()
 
@@ -105,7 +124,8 @@ def robust_accuracy(model, loader, num_steps=20):
     correct, total = 0, 0
     for x, y in loader:
         x, y  = x.to(device), y.to(device)
-        x_adv = pgd_attack(model, x, y, num_steps=num_steps)
+        #x_adv = pgd_attack(model, x, y, num_steps=num_steps)
+        x_adv = fgsm_attack(model, x, y)
         with torch.no_grad():
             correct += (model(x_adv).argmax(1) == y).sum().item()
         total += y.size(0)
@@ -125,7 +145,8 @@ for epoch in range(1, NUM_EPOCHS + 1):
 
     for x, y in train_loader:
         x, y  = x.to(device), y.to(device)
-        x_adv = pgd_attack(model, x, y)
+        #x_adv = pgd_attack(model, x, y)
+        x_adv = fgsm_attack(model, x, y)
 
         model.train()
         optimizer.zero_grad()
