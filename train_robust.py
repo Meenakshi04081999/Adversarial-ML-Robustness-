@@ -47,12 +47,13 @@ NUM_EPOCHS   = 150
 LR           = 0.1
 MOMENTUM     = 0.9
 WEIGHT_DECAY = 5e-4
-EPS          = 8  / 255.0    # L-inf budget
+EPS          = 12  / 255.0    # L-inf budget
 STEP_SIZE    = 2  / 255.0    # PGD step
 PGD_STEPS    = 20            # PGD iterations during training
 ADV_WEIGHT   = 0.5           # 0.5*clean + 0.5*adv  (matches eval metric)
 EMA_DECAY    = 0.9995
 LABEL_SMOOTH = 0.1
+EPS_EVAL = 8 / 255.0
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Device:", device)
@@ -157,8 +158,8 @@ def robust_accuracy(model, loader, num_steps=20):
     correct_fgsm, correct_pgd, total = 0, 0, 0
     for x, y in loader:
         x, y   = x.to(device), y.to(device)
-        x_pgd  = pgd_attack(model, x, y, num_steps=num_steps)
-        x_fgsm = fgsm_attack(model, x, y)
+        x_pgd  = pgd_attack(model, x, y, eps=EPS_EVAL, num_steps=num_steps)
+        x_fgsm = fgsm_attack(model, x, y, eps=EPS_EVAL)
         with torch.no_grad():
             correct_fgsm += (model(x_fgsm).argmax(1) == y).sum().item()
             correct_pgd  += (model(x_pgd).argmax(1)  == y).sum().item()
