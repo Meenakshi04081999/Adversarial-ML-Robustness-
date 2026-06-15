@@ -43,13 +43,13 @@ with torch.no_grad():
 print("Output shape:", out.shape)  # must be (1, 9)
 
 # Hyperparameters 
-NUM_EPOCHS   = 100
+NUM_EPOCHS   = 150
 LR           = 0.1
 MOMENTUM     = 0.9
 WEIGHT_DECAY = 5e-4
 EPS          = 8  / 255.0    # L-inf budget
 STEP_SIZE    = 2  / 255.0    # PGD step
-PGD_STEPS    = 10            # PGD iterations during training
+PGD_STEPS    = 20            # PGD iterations during training
 ADV_WEIGHT   = 0.5           # 0.5*clean + 0.5*adv  (matches eval metric)
 EMA_DECAY    = 0.9995
 LABEL_SMOOTH = 0.1
@@ -138,7 +138,7 @@ def augment(x):
 # Optimiser & scheduler 
 optimizer = optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM,
                       weight_decay=WEIGHT_DECAY, nesterov=True)
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
+scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[75, 125], gamma=0.1)
 criterion = nn.CrossEntropyLoss(label_smoothing=LABEL_SMOOTH)
 
 # Evaluation helpers 
@@ -156,12 +156,12 @@ def robust_accuracy(model, loader, num_steps=20):
     model.eval()
     correct_fgsm, correct_pgd, total = 0, 0, 0
     for x, y in loader:
-        x, y  = x.to(device), y.to(device)
-        x_adv = pgd_attack(model, x, y, num_steps=num_steps)
-        x_adv = fgsm_attack(model, x, y)
+        x, y   = x.to(device), y.to(device)
+        x_pgd  = pgd_attack(model, x, y, num_steps=num_steps)
+        x_fgsm = fgsm_attack(model, x, y)
         with torch.no_grad():
-            correct_fgsm += (model(x_adv).argmax(1) == y).sum().item()
-            correct_pgd += (model(x_adv).argmax(1) == y).sum().item()
+            correct_fgsm += (model(x_fgsm).argmax(1) == y).sum().item()
+            correct_pgd  += (model(x_pgd).argmax(1)  == y).sum().item()
         total += y.size(0)
     return correct_fgsm / total, correct_pgd / total
 

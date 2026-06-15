@@ -42,7 +42,7 @@ BASE_URL = "http://34.63.153.158"
 API_KEY = "c624f3b8d663751fcf05c23893ab116a"  # replace with your actual API key
 
 MODEL_PATH = "/home/atml_team032/robust_classifier/model.pt"  # replace with your actual model path
-MODEL_NAME = "resnet18"  # replace with your actual model architecture - resnet18, resnet34, or resnet50
+MODEL_NAME = "resnet34"  # replace with your actual model architecture - resnet18, resnet34, or resnet50
 
 SUBMIT = True  # set to True to enable submission
 
