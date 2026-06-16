@@ -32,25 +32,25 @@ val_dataset   = TensorDataset(images[va_idx], labels[va_idx])
 train_loader  = DataLoader(train_dataset, batch_size=128, shuffle=True,  num_workers=4, pin_memory=True)
 val_loader    = DataLoader(val_dataset,   batch_size=256, shuffle=False, num_workers=4, pin_memory=True)
 
-# Model (exactly as in task_template.py) 
+# Model
 model = resnet18(weights=None)
 model.fc = nn.Linear(model.fc.in_features, NUM_CLASSES)
 
-# Sanity check
+
 model.eval()
 with torch.no_grad():
     out = model(torch.randn(1, 3, 32, 32))
-print("Output shape:", out.shape)  # must be (1, 9)
+print("Output shape:", out.shape) 
 
 # Hyperparameters 
 NUM_EPOCHS   = 100
 LR           = 0.1
 MOMENTUM     = 0.9
 WEIGHT_DECAY = 5e-4
-EPS          = 8  / 255.0    # L-inf budget
-STEP_SIZE    = 2  / 255.0    # PGD step
-PGD_STEPS    = 10            # PGD iterations during training
-ADV_WEIGHT   = 0.5           # 0.5*clean + 0.5*adv  (matches eval metric)
+EPS          = 8  / 255.0    
+STEP_SIZE    = 2  / 255.0    
+PGD_STEPS    = 10            
+ADV_WEIGHT   = 0.5           
 EMA_DECAY    = 0.9995
 LABEL_SMOOTH = 0.1
 
@@ -87,7 +87,7 @@ def pgd_attack(model, x, y, eps=EPS, step_size=STEP_SIZE, num_steps=PGD_STEPS):
     return x_adv.detach()
     
     
-# Now trying out FGSM attack on resnet 18
+
 def fgsm_attack(model, x, y, eps=EPS):
     model.eval()
     x_adv = x.detach().clone()
@@ -104,12 +104,7 @@ def fgsm_attack(model, x, y, eps=EPS):
     return x_adv.detach()
 
 def mixed_attack(model, x, y, epoch, num_epochs=NUM_EPOCHS):
-    """
-    mixed attack:
-    - Early epochs (1-50):   mostly FGSM (70%) + PGD (30%)  → fast warmup
-    - Middle epochs (51-100): equal mix  FGSM (50%) + PGD (50%)
-    - Late epochs (101+):    mostly PGD  (30%) + FGSM (70%) → strong finish
-    """
+    
     if epoch <= 50:
         fgsm_prob = 0.7
     elif epoch <= 100:
@@ -126,7 +121,7 @@ def augment(x):
     # Random horizontal flip
     if torch.rand(1).item() > 0.5:
         x = x.flip(-1)
-    # Random crop (pad 4, crop to 32)
+    # Random crop
     pad = 4
     x = nn.functional.pad(x, (pad, pad, pad, pad), mode='reflect')
     _, _, h, w = x.shape
@@ -224,7 +219,7 @@ for epoch in range(1, NUM_EPOCHS + 1):
 if best_state is None:
     torch.save(ema_model.state_dict(), "model.pt")
 
-print(f"\nDone. Best score: {best_score:.3%}  →  model.pt")
+print(f"\nBest score: {best_score:.3%}  →  model.pt")
 
 # Sanity check
 model_check = resnet18(weights=None)
