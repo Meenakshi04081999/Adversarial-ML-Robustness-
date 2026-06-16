@@ -69,7 +69,7 @@ def update_ema(model, ema_model, decay=EMA_DECAY):
 
 # PGD attack 
 
-"""
+
 def pgd_attack(model, x, y, eps=EPS, step_size=STEP_SIZE, num_steps=PGD_STEPS):
     model.eval()
     x_adv = x.detach() + torch.zeros_like(x).uniform_(-eps, eps)
@@ -85,8 +85,9 @@ def pgd_attack(model, x, y, eps=EPS, step_size=STEP_SIZE, num_steps=PGD_STEPS):
     model.train()
     return x_adv.detach()
     
-    """
+    
 # Now trying out FGSM attack on resnet 18
+"""
 def fgsm_attack(model, x, y, eps=EPS):
     model.eval()
     x_adv = x.detach().clone()
@@ -101,6 +102,8 @@ def fgsm_attack(model, x, y, eps=EPS):
 
     model.train()
     return x_adv.detach()
+    
+    """
 
 # Optimiser & scheduler 
 optimizer = optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM,
@@ -124,8 +127,8 @@ def robust_accuracy(model, loader, num_steps=20):
     correct, total = 0, 0
     for x, y in loader:
         x, y  = x.to(device), y.to(device)
-        #x_adv = pgd_attack(model, x, y, num_steps=num_steps)
-        x_adv = fgsm_attack(model, x, y)
+        x_adv = pgd_attack(model, x, y, num_steps=num_steps)
+        #x_adv = fgsm_attack(model, x, y)
         with torch.no_grad():
             correct += (model(x_adv).argmax(1) == y).sum().item()
         total += y.size(0)
@@ -145,8 +148,8 @@ for epoch in range(1, NUM_EPOCHS + 1):
 
     for x, y in train_loader:
         x, y  = x.to(device), y.to(device)
-        #x_adv = pgd_attack(model, x, y)
-        x_adv = fgsm_attack(model, x, y)
+        x_adv = pgd_attack(model, x, y)
+        #x_adv = fgsm_attack(model, x, y)
 
         model.train()
         optimizer.zero_grad()
@@ -175,7 +178,7 @@ for epoch in range(1, NUM_EPOCHS + 1):
         best_score = score
         best_state = copy.deepcopy(ema_model.state_dict())
         torch.save(best_state, "model.pt")
-        print(f"  ✓ Saved (score={best_score:.3%})")
+        print(f" Saved (score={best_score:.3%})")
 
 #  Final 
 if best_state is None:
