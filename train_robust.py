@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from torchvision.models import resnet18, resnet34, resnet50
 import torch.optim as optim
@@ -90,7 +91,7 @@ def trades_loss(model, x, y, eps=EPS, step_size=STEP_SIZE,
  
     # Get clean predictions (no gradient needed)
     with torch.no_grad():
-        p_clean = F.softmax(model(x), dim=1)
+        p_clean = F.softmax(model(x).detach(), dim=1)
  
     # PGD steps maximizing KL divergence from clean predictions
     for _ in range(num_steps):
@@ -114,9 +115,10 @@ def trades_loss(model, x, y, eps=EPS, step_size=STEP_SIZE,
     loss_clean = F.cross_entropy(logits_clean, y)
     loss_robust = F.kl_div(
         F.log_softmax(logits_adv,   dim=1),
-        F.softmax(logits_clean,     dim=1),
+        F.softmax(logits_clean.detach(),     dim=1),
         reduction='batchmean'
     )
+    loss_robust = torch.clamp(loss_robust, min=0.0, max=100.0)
     return loss_clean + beta * loss_robust
  
 # PGD attack (for evaluation only)
